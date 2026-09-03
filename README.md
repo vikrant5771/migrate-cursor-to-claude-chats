@@ -3,6 +3,8 @@
 Migrate Cursor IDE Composer conversations into Claude Code CLI sessions
 while preserving conversation history, timestamps, project context, and
 message relationships.
+Find the detailed guide below :
+https://drive.google.com/file/d/1e87doGNqd9N1Ezl58WZMmMZMJopdUp9C/view?usp=sharing
 
 ## How it works
 
