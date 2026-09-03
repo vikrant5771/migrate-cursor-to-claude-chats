@@ -292,42 +292,79 @@ def generate_claude_project_slug(workspace_path: str) -> str:
     slug = re.sub(r'-+', '-', slug)
     return slug
 
+def link_session_to_projects(
+    session_id: str,
+    master_jsonl_path: str,
+    target_project_dirs: List[str],
+    dry_run: bool = False
+) -> int:
+    """
+    Creates symlinks of a master session .jsonl into target Claude Code project directories.
+    Returns the count of new symlinks created.
+    """
+    links_created = 0
+    filename = f"{session_id}.jsonl"
+    for proj_dir in target_project_dirs:
+        dest_path = os.path.join(proj_dir, filename)
+        if os.path.abspath(dest_path) == os.path.abspath(master_jsonl_path):
+            continue
+        if not os.path.exists(dest_path) and not os.path.islink(dest_path):
+            if not dry_run:
+                try:
+                    os.symlink(master_jsonl_path, dest_path)
+                    links_created += 1
+                except Exception:
+                    try:
+                        import shutil
+                        shutil.copy2(master_jsonl_path, dest_path)
+                        links_created += 1
+                    except Exception:
+                        pass
+            else:
+                links_created += 1
+    return links_created
+
 def export_to_claude_session(
     session: Dict[str, Any],
     output_base_dir: str,
-    target_workspace: Optional[str] = None
+    target_workspace: Optional[str] = None,
+    custom_project_dir: Optional[str] = None
 ) -> Tuple[str, int]:
     """
     Converts a Cursor session dictionary to a Claude Code .jsonl session file.
     Returns: (output_file_path, message_count)
     """
-    raw_ws = target_workspace or session.get("workspace") or os.getcwd()
-    ws_info = resolve_workspace_info(raw_ws)
-    # If the workspace path is a .code-workspace file, default to its primary repo directory
-    ws_path = ws_info["primary_dir"] if ws_info["is_code_workspace"] else os.path.abspath(raw_ws)
-    
-    slug = generate_claude_project_slug(ws_path)
-    # Format 1: -Users-name-folder, Format 2: Users-name-folder
-    slug_dir_name = slug if slug.startswith("-") else f"-{slug}"
-    
-    project_dir = os.path.join(output_base_dir, slug_dir_name)
-    os.makedirs(project_dir, exist_ok=True)
-    
-    # Link alias slugs if needed (secondary dir without leading dash or code-workspace parent/file)
-    alias_paths = [os.path.join(output_base_dir, slug.lstrip("-"))]
-    if ws_info["is_code_workspace"]:
-        base_slug = generate_claude_project_slug(ws_info["base_dir"])
-        alias_paths.append(os.path.join(output_base_dir, base_slug if base_slug.startswith("-") else f"-{base_slug}"))
-        ws_file_slug = generate_claude_project_slug(ws_info["original_path"])
-        alias_paths.append(os.path.join(output_base_dir, ws_file_slug if ws_file_slug.startswith("-") else f"-{ws_file_slug}"))
+    if custom_project_dir:
+        project_dir = os.path.abspath(custom_project_dir)
+        os.makedirs(project_dir, exist_ok=True)
+        ws_path = os.path.abspath(target_workspace or os.getcwd())
+    else:
+        raw_ws = target_workspace or session.get("workspace") or os.getcwd()
+        ws_info = resolve_workspace_info(raw_ws)
+        # If the workspace path is a .code-workspace file, default to its primary repo directory
+        ws_path = ws_info["primary_dir"] if ws_info["is_code_workspace"] else os.path.abspath(raw_ws)
+        
+        slug = generate_claude_project_slug(ws_path)
+        # Format 1: -Users-name-folder, Format 2: Users-name-folder
+        slug_dir_name = slug if slug.startswith("-") else f"-{slug}"
+        
+        project_dir = os.path.join(output_base_dir, slug_dir_name)
+        os.makedirs(project_dir, exist_ok=True)
+        
+        # Link alias slugs if needed (secondary dir without leading dash or code-workspace parent/file)
+        alias_paths = [os.path.join(output_base_dir, slug.lstrip("-"))]
+        if ws_info["is_code_workspace"]:
+            base_slug = generate_claude_project_slug(ws_info["base_dir"])
+            alias_paths.append(os.path.join(output_base_dir, base_slug if base_slug.startswith("-") else f"-{base_slug}"))
+            ws_file_slug = generate_claude_project_slug(ws_info["original_path"])
+            alias_paths.append(os.path.join(output_base_dir, ws_file_slug if ws_file_slug.startswith("-") else f"-{ws_file_slug}"))
 
-    for alt_dir in alias_paths:
-        if alt_dir != project_dir and not os.path.exists(alt_dir):
-            try:
-                os.symlink(project_dir, alt_dir)
-            except Exception:
-                pass
-
+        for alt_dir in alias_paths:
+            if alt_dir != project_dir and not os.path.exists(alt_dir):
+                try:
+                    os.symlink(project_dir, alt_dir)
+                except Exception:
+                    pass
 
     session_id = session["composerId"]
     jsonl_file = os.path.join(project_dir, f"{session_id}.jsonl")
@@ -439,6 +476,16 @@ def main():
         help="Include sessions whose workspace could not be determined."
     )
     parser.add_argument(
+        "--unspecified-only",
+        action="store_true",
+        help="Migrate only untitled/unspecified Cursor sessions (not associated with any workspace)."
+    )
+    parser.add_argument(
+        "--unspecified-to-all",
+        action="store_true",
+        help="Export untitled/unspecified Cursor sessions and symlink them into ALL Claude Code project workspaces."
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Preview migration actions without writing files."
@@ -465,6 +512,73 @@ def main():
             print(f"{s['title']:<45} {len(s['bubbles']):<10} {ws_display:<40} {s['composerId']}")
         return
 
+    # Handle broadcasting unspecified sessions to all projects
+    if args.unspecified_to_all:
+        target_sessions = [s for s in sessions if not s.get("workspace")]
+        if not target_sessions:
+            print("No untitled/unspecified Cursor sessions found to migrate.")
+            sys.exit(0)
+
+        master_slug = "-unspecified-cursor-sessions"
+        master_dir = os.path.join(args.output_dir, master_slug)
+        if not args.dry_run:
+            os.makedirs(master_dir, exist_ok=True)
+
+        target_project_dirs = []
+        if os.path.exists(args.output_dir):
+            for entry in os.listdir(args.output_dir):
+                p = os.path.join(args.output_dir, entry)
+                if os.path.isdir(p) and not os.path.islink(p) and entry != master_slug:
+                    target_project_dirs.append(p)
+
+        if args.workspace:
+            ws_info = resolve_workspace_info(args.workspace)
+            p_dir = args.target_dir or ws_info["primary_dir"]
+            p_slug = generate_claude_project_slug(p_dir)
+            p_slug_dir = p_slug if p_slug.startswith("-") else f"-{p_slug}"
+            extra_dir = os.path.join(args.output_dir, p_slug_dir)
+            if not args.dry_run:
+                os.makedirs(extra_dir, exist_ok=True)
+            if extra_dir not in target_project_dirs:
+                target_project_dirs.append(extra_dir)
+
+        print(f"🚀 Found {len(target_sessions)} untitled/unspecified session(s).")
+        print(f"📁 Master storage directory: {master_dir}")
+        print(f"🔗 Target Claude projects to link into ({len(target_project_dirs)}):")
+        for pd in target_project_dirs:
+            print(f"   ├─ {os.path.basename(pd)}")
+        print()
+
+        migrated_count = 0
+        total_links = 0
+        for idx, s in enumerate(target_sessions, 1):
+            expected_master = os.path.join(master_dir, f"{s['composerId']}.jsonl")
+            print(f"[{idx}/{len(target_sessions)}] {s['title']}")
+            print(f"   ├─ Composer ID: {s['composerId']}")
+            print(f"   ├─ Messages:    {len(s['bubbles'])}")
+            print(f"   ├─ Master File: {expected_master}")
+            print(f"   └─ Linking into {len(target_project_dirs)} project(s)...")
+
+            if not args.dry_run:
+                out_file, msg_count = export_to_claude_session(s, args.output_dir, custom_project_dir=master_dir)
+                links = link_session_to_projects(s["composerId"], out_file, target_project_dirs, dry_run=False)
+                total_links += links
+                print(f"   ✅ Saved master session ({msg_count} turns) & created {links} link(s)\n")
+            else:
+                links = link_session_to_projects(s["composerId"], expected_master, target_project_dirs, dry_run=True)
+                total_links += links
+                print(f"   [DRY RUN - Would create master file and {links} link(s)]\n")
+
+            migrated_count += 1
+
+        if not args.dry_run:
+            print(f"✨ Successfully exported {migrated_count} untitled session(s) into master storage!")
+            print(f"✨ Created {total_links} symlink(s) across {len(target_project_dirs)} Claude Code workspace(s).")
+            print("These chats will now appear in your session list whenever you run `claude` in any project.")
+        else:
+            print(f"[DRY RUN COMPLETE] {migrated_count} untitled session(s) would be exported and linked into {len(target_project_dirs)} project(s).")
+        return
+
     # Filter sessions based on arguments
     target_sessions = []
     filter_ws = None
@@ -477,6 +591,20 @@ def main():
             sys.exit(1)
         if args.target_dir:
             target_export_dir = os.path.abspath(args.target_dir)
+    elif args.unspecified_only:
+        target_sessions = [s for s in sessions if not s.get("workspace")]
+        if args.workspace:
+            ws_info = resolve_workspace_info(args.workspace)
+            filter_ws = ws_info["original_path"]
+            target_export_dir = os.path.abspath(args.target_dir) if args.target_dir else ws_info["primary_dir"]
+            print(f"Filtering {len(target_sessions)} untitled/unspecified sessions for target workspace: {target_export_dir}")
+        elif args.target_dir:
+            target_export_dir = os.path.abspath(args.target_dir)
+            print(f"Exporting {len(target_sessions)} untitled/unspecified sessions to target directory: {target_export_dir}")
+        else:
+            filter_ws = os.getcwd()
+            target_export_dir = filter_ws
+            print(f"No workspace specified. Exporting {len(target_sessions)} untitled/unspecified sessions to current workspace: {filter_ws}")
     elif args.workspace:
         ws_info = resolve_workspace_info(args.workspace)
         filter_ws = ws_info["original_path"]
