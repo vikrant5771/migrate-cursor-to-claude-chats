@@ -466,9 +466,9 @@ def main():
         help="Base output directory for Claude Code projects (default: ~/.claude/projects)."
     )
     parser.add_argument(
-        "--target-dir",
+        "--target-dir", "--dest", "--destination",
         type=str,
-        help="Explicit directory path for Claude Code project destination (useful when workspace is a .code-workspace file)."
+        help="Destination directory in Claude Code where the chats should be imported."
     )
     parser.add_argument(
         "--include-unspecified",
