@@ -7,6 +7,8 @@ Find the detailed guide below :
 https://drive.google.com/file/d/1e87doGNqd9N1Ezl58WZMmMZMJopdUp9C/view?usp=sharing
 
 ## How it works
+<img width="1024" height="1536" alt="ChatGPT Image Sep 3, 2026, 09_09_30 AM" src="https://github.com/user-attachments/assets/a8aa0396-4b68-4e3e-b8de-9481db7121f7" />
+
 
 ``` text
 Cursor SQLite databases
