@@ -145,6 +145,11 @@ python3 migrate_cursor_to_claude.py \
 
 ``` bash
 python3 migrate_cursor_to_claude.py --all
+
+#unspecified session ---- (new)
+--unspecified-to-all: Exports all 103 untitled/unspecified sessions and symlinks them into all existing Claude Code project workspaces.
+--unspecified-only --workspace <path>: Exports all 103 untitled sessions into a single chosen workspace.
+
 ```
 
 For a large history, run `--list` and/or a dry run first.
