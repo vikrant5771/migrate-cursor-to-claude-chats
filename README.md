@@ -10,23 +10,24 @@ https://drive.google.com/file/d/1e87doGNqd9N1Ezl58WZMmMZMJopdUp9C/view?usp=shari
 <img width="1024" height="1536" alt="ChatGPT Image Sep 3, 2026, 09_09_30 AM" src="https://github.com/user-attachments/assets/a8aa0396-4b68-4e3e-b8de-9481db7121f7" />
 
 
-``` text
-Cursor SQLite databases
-        ↓
-Discover Composer sessions
-        ↓
-Extract conversation bubbles
-        ↓
-Resolve workspace → repository
-        ↓
-Reconstruct message chain
-        ↓
-Convert to Claude Code JSONL
-        ↓
-~/.claude/projects/<project-slug>/
-        ↓
-claude → /resume
-```
+
+> [!IMPORTANT]
+> ### ⚠️ Important Notice: How Workspaces Work in Claude Code (Avoid Confusion!)
+> 
+> **You will NOT see all your chats in every workspace.**
+> 
+> Both Cursor and Claude Code strictly isolate chats by project directory:
+> - **Cursor** links each chat session to a specific workspace directory via internal hashes (`workspaceStorage`).
+> - **Claude Code CLI (`claude`)** discovers sessions by matching your current terminal folder to a project slug in `~/.claude/projects/-<Project-Slug>/`.
+> 
+> When you open a terminal in `/path/to/project-A` and type `claude`, it **only loads chats belonging to Project A**. It will **not** display chats from Project B.
+> 
+> | If you want to... | What you should do |
+> | :--- | :--- |
+> | **See a project's migrated chats** | `cd` into that **exact project directory** before running `claude`. |
+> | **Import chats into a different workspace** | Use `--dest /path/to/target-project` to route them there. |
+> | **See untitled / scratchpad chats everywhere** | Use `--unspecified-to-all` (symlinks them into all your project workspaces). |
+
 
 The migration is **non-destructive**: it creates Claude Code session
 files and does not intentionally modify or delete Cursor data.
